@@ -1,0 +1,163 @@
+#!/usr/bin/env -S rad -a fin+fout+env --discard --comment start
+
+% File name : mac.r4d
+% Author    : Simon creek
+
+% Soundness options
+$strict()
+$require(fin,fout,env)
+$comment(start)
+
+% Basic bindings
+$static(base_dir,$env(HOME)/programming)
+$static(todo_file,docs/meta.md)
+$static(agg_file,todos.md)
+$static(agg_modified,$ftime($agg_file()))
+
+% Define lines container of projects
+$static=(
+    projects
+    ,
+    rust/ced
+    rust/cindex
+    rust/cursorvec
+    rust/dcsv 
+    rust/gcalc
+    rust/gdengine
+    rust/r4d
+)
+
+% Merge paths in place
+$repl=(
+    projects,
+    $forline=(
+        $path($base_dir(),$:(),$todo_file()),
+        $projects^()
+    )
+)
+
+% Get the biggest last-modified time from todo files
+$static(
+    newest,
+    $let(arr,$empty())
+    $forline=(
+        $append(arr,$ftime($:()),$comma()),$enl()
+        $projects^()
+    )
+    $max($arr())
+)
+
+% If the newest file is newer than agg_file
+$static(todo_has_update,$gt($newest(),$agg_modified()))
+
+% If last modified file is not bigger than agg_file's last_modified time,
+% simply exit from processing.
+$if=(
+    $todo_has_update!(),
+    $log(Every file is up to date)
+    $exit()
+)
+
+% ---
+% Main logics start from here
+% ---
+
+% NOTE
+% If you care about performance for a reason,
+% Consider freezing macros and melt on needs.
+
+% Register regex expressions to use compiled regex
+$regexpr(total,^\\* \[.\])
+$regexpr(fin,^\\* \[x\])
+
+% Define containers
+$define(format_toc=# TOC$nl(2))
+$define(cont=)
+
+% Define wrapper macros
+% Convert fraction to percentage
+$define=(
+    as_percentage,
+    a_numer a_denom
+    =
+    $prec($eval($a_numer().0 / $a_denom().0 * 100),0)%
+)
+
+% Format finished line
+$define=(
+    format_finished,
+    a_finished a_total
+    =
+    **Finished** : $a_finished() / $a_total() $enl()
+    [$as_percentage($a_finished(),$a_total())]
+)
+
+% Write content and finished result to a temporary file
+$define(
+    tempout_todo,
+    a_cont a_result
+    =
+    $tempout($a_cont()$nl(2)$a_result()$nl(2)---$nl(2))
+)
+
+% Include todos from a file
+$define(inc_todo,a_file=
+    $if(
+        $len($a_file()),
+        $readin^($a_file())
+    )
+)
+
+% Define surrounding tags macro
+$define=(todo_start=
+    $repl(cont,$empty())
+    $relay(macro,cont)
+    $let(
+        pr_name,
+        $cut($PS(),-3,$input(true))
+    )
+    $append(format_toc,* [$pr_name()](#$pr_name())$nl())
+    ## [$pr_name()]($input())$nl()
+)
+$define(
+    todo_end
+    =
+    $halt()
+    % Total counts of todos
+    $let(
+        total,
+        $countl($grepl(total,$cont^()))
+    )
+    % Finished counts of todos
+    $let(
+        finished,
+        $countl($grepl(fin,$cont^()))
+    )
+    % Formatted result
+    $let(
+        result,
+        $ifelse(
+            $total!(),
+            **No todos**,
+            $format_finished($finished(),$total())
+        )
+    )
+    % needs to literal quote cont because cont possibly includes comma
+    $tempout_todo($cont*^(),$result())
+    % Exit immediately because I don't need other texts
+    $exit()
+)
+
+% Append literal toc macro to temporary file's header part
+$tempout(\*$format_toc()$escape()*\$nl())
+
+% Iterate projects lines and include todos from a file
+$forline^=(
+    $inc_todo($:()),
+    $projects^()
+)
+
+$dump($agg_file())
+
+% Read a temporary file into an aggregated file
+$readto($temp(),$agg_file())
